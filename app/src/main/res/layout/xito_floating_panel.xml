@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:background="@drawable/neon_panel"
+    android:padding="10dp"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- Barra Superior Arrastrable -->
+    <LinearLayout
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="44dp">
+
+        <ImageView
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:src="@drawable/ic_xito_bubble"
+            android:contentDescription="Logo XITO MODS" />
+
+        <TextView
+            android:id="@+id/floating_title_drag"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="#FF00F5D4"
+            android:gravity="center_vertical"
+            android:paddingLeft="10dp"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:text="XITO MODS"
+            android:layout_weight="1"
+            android:letterSpacing="0.06"
+            android:fontFamily="sans-serif-black" />
+
+        <TextView
+            android:id="@+id/floating_btn_minimize"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:textColor="#FF00F5D4"
+            android:gravity="center"
+            android:background="@drawable/bg_neon_tab"
+            android:focusable="true"
+            android:clickable="true"
+            android:layout_width="44dp"
+            android:layout_height="38dp"
+            android:text="−" />
+    </LinearLayout>
+
+    <!-- Barra de 4 Pestañas: MIRA | VISUALES | AJUSTES | INFORMACIÓN -->
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="38dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="8dp">
+
+        <LinearLayout
+            android:id="@+id/tab_container_mira"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:background="@drawable/bg_neon_tab_selected"
+            android:clickable="true"
+            android:focusable="true"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginRight="4dp"
+            android:layout_weight="1">
+            <TextView
+                android:id="@+id/tab_text_mira"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:textColor="#FF00F5D4"
+                android:gravity="center"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:text="MIRA" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/tab_container_visuales"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:background="@drawable/bg_neon_tab"
+            android:clickable="true"
+            android:focusable="true"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginRight="4dp"
+            android:layout_weight="1">
+            <TextView
+                android:id="@+id/tab_text_visuales"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:textColor="#FF9BA6C4"
+                android:gravity="center"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:text="VISUALES" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/tab_container_ajustes"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:background="@drawable/bg_neon_tab"
+            android:clickable="true"
+            android:focusable="true"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginRight="4dp"
+            android:layout_weight="1">
+            <TextView
+                android:id="@+id/tab_text_ajustes"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:textColor="#FF9BA6C4"
+                android:gravity="center"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:text="AJUSTES" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/tab_container_info"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:background="@drawable/bg_neon_tab"
+            android:clickable="true"
+            android:focusable="true"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1">
+            <TextView
+                android:id="@+id/tab_text_info"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:textColor="#FF9BA6C4"
+                android:gravity="center"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:text="INFO" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Contenedor Dinámico de Opciones -->
+    <ScrollView
+        android:scrollbars="none"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:fillViewport="true"
+        android:layout_weight="1">
+        <LinearLayout
+            android:id="@+id/floating_content_container"
+            android:orientation="vertical"
+            android:paddingBottom="8dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+    </ScrollView>
+
+    <!-- Pie del Panel con Control de Redimensionado (◢) -->
+    <LinearLayout
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="24dp">
+        <TextView
+            android:textSize="9sp"
+            android:textColor="#FF9BA6C4"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:text="XITO MODS • ARRASTRA EL TÍTULO PARA MOVER"
+            android:layout_weight="1" />
+        <TextView
+            android:id="@+id/floating_resize_handle"
+            android:textSize="18sp"
+            android:textColor="#FFBC13FE"
+            android:gravity="bottom|right"
+            android:layout_width="44dp"
+            android:layout_height="24dp"
+            android:text="◢" />
+    </LinearLayout>
+</LinearLayout>
