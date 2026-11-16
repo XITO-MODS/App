@@ -1,13 +1,19 @@
 package com.xitomods.panel;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.NotificationManager;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.net.VpnService;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -26,24 +32,63 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 /**
- * Actividad Principal de XITO MODS (equivalente a A0 del APK original).
+ * Actividad Principal de XITO MODS con todas las funciones originales de HEX_ESP integradas.
  * Incluye:
  * 1. Pantalla de Login con Clave Neón (buildLoginUi) y validación en KeyAuthManager.
  * 2. Diálogo de bienvenida (showJoinPopup).
- * 3. Panel Principal (Dashboard) con selector de app, estado de permisos, activación del botón flotante,
- *    personalización de tamaño/opacidad y configurador completo de Mira Neón.
+ * 3. Dashboard completo con las 6 secciones de HEX_ESP:
+ *    - 01 / ELIGE LA APLICACIÓN (Selector de apps instaladas + FF MAX + FF NORMAL)
+ *    - 02 / CONCEDE EL ACCESO (Servicio VPN, Mostrar sobre otras aplicaciones, Notificaciones, Almacenamiento)
+ *    - 03 / INICIA EL BOTÓN FLOTANTE (Inicia/Detiene XitoProxyVpnService + FloatingPanelService)
+ *    - 04 / PERSONALIZA (Tamaño y opacidad del botón flotante + Ocultar código de la partida con grosor y longitud de barra)
+ *    - 05 / AJUSTES AVANZADOS (Fantasma V2 / Ghost V2, Latencia de Ping, Invisible V2 con velocidad de repetición,
+ *           Detener el teletransporte automáticamente, Congelar, Teletransporte al Objetivo, Teletransporte Infinito
+ *           con Paquetes por ráfaga, Retardo entre ráfagas y Búfer de recuperación, Modo en vivo desarrollador)
+ *    - 06 / MIRA PERSONALIZADA (Mostrar Mira, 8 estilos, 9 colores con barra de vista previa, Tamaño y Opacidad)
  */
 public class MainActivity extends Activity {
     private static final int REQ_OVERLAY_PERMISSION = 2001;
+    private static final int REQ_VPN_PERMISSION = 2002;
+    private static final int REQ_NOTIF_PERMISSION = 2003;
+    private static final int REQ_STORAGE_PERMISSION = 2004;
     private static final String CHANNEL_URL = "https://youtube.com/@XitoMods";
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private TextView keyCountdownTv;
+    private View appStatusDot;
     private TextView selectedAppTv;
+
+    private View vpnPermDot;
+    private TextView vpnPermBadge;
+    private View overlayPermDot;
     private TextView overlayPermBadge;
+    private View notifPermDot;
+    private TextView notifPermBadge;
+    private View storagePermDot;
+    private TextView storagePermBadge;
+
+    private View engineStatusDot;
     private TextView engineStatusTv;
+    private TextView engineSubStatusTv;
     private Button startStopButton;
+
+    private TextView hideCodeSubTv;
+    private TextView hideCodeBadge;
+    private TextView tpTargetBadge;
+    private TextView tpTargetSubTv;
+    private TextView tpInfiniteBadge;
+    private TextView tpInfiniteSubTv;
+    private TextView freezeBadge;
+    private TextView freezeSubTv;
+    private View crossColorPreviewBar;
+    private final List<TextView> crossStyleButtons = new ArrayList<>();
+
+    private boolean pendingStartAfterVpnGrant = false;
 
     private final int[] NEON_COLORS = {
         Color.parseColor("#00F5D4"), // Cian Neón
@@ -87,6 +132,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (KeyAuthManager.hasValidSession(this)) {
+            refreshStatusBadges();
             uiHandler.post(tickRunnable);
         }
     }
@@ -97,12 +143,31 @@ public class MainActivity extends Activity {
         uiHandler.removeCallbacks(tickRunnable);
     }
 
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_VPN_PERMISSION) {
+            if (resultCode == RESULT_OK) {
+                getSharedPreferences(FloatingPanelService.UI_PREFS, MODE_PRIVATE)
+                        .edit().putBoolean("vpn_perm_granted", true).apply();
+                if (pendingStartAfterVpnGrant) {
+                    pendingStartAfterVpnGrant = false;
+                    startProxyAndOverlayServices();
+                }
+            } else {
+                pendingStartAfterVpnGrant = false;
+                Toast.makeText(this, "Permiso de VPN no concedido", Toast.LENGTH_SHORT).show();
+            }
+        }
+        refreshStatusBadges();
+    }
+
     private int dp(float v) {
         return Math.round(v * getResources().getDisplayMetrics().density);
     }
 
     // =========================================================================
-    // PANTALLA DE LOGIN NEÓN (Equivalente a buildLoginUi en A0)
+    // PANTALLA DE LOGIN NEÓN
     // =========================================================================
     private void buildLoginUi() {
         uiHandler.removeCallbacks(tickRunnable);
@@ -142,7 +207,7 @@ public class MainActivity extends Activity {
         card.addView(title);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("ACCESO CON CLAVE • EDICIÓN NEÓN V4");
+        subtitle.setText("ACCESO CON CLAVE • EDICIÓN HEX NEÓN V4");
         subtitle.setTextSize(12f);
         subtitle.setTextColor(Color.parseColor("#BC13FE"));
         subtitle.setGravity(Gravity.CENTER);
@@ -163,7 +228,7 @@ public class MainActivity extends Activity {
         card.addView(keyInput, inputLp);
 
         final TextView loginStatus = new TextView(this);
-        loginStatus.setText("Introduce tu clave de acceso para desbloquear el panel flotante.");
+        loginStatus.setText("Introduce tu clave de acceso para desbloquear el proxy y panel flotante.");
         loginStatus.setTextColor(Color.parseColor("#9BA6C4"));
         loginStatus.setTextSize(12f);
         loginStatus.setGravity(Gravity.CENTER);
@@ -212,10 +277,11 @@ public class MainActivity extends Activity {
     }
 
     // =========================================================================
-    // DASHBOARD PRINCIPAL NEÓN (Equivalente a l000.xml + buildMainPages en A0)
+    // DASHBOARD PRINCIPAL CON LAS 6 SECCIONES DE HEX_ESP
     // =========================================================================
     private void buildDashboardUi() {
         final SharedPreferences prefs = getSharedPreferences(FloatingPanelService.UI_PREFS, MODE_PRIVATE);
+        crossStyleButtons.clear();
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -232,11 +298,11 @@ public class MainActivity extends Activity {
         header.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams headerLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        headerLp.bottomMargin = dp(18);
+        headerLp.bottomMargin = dp(12);
 
         ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.ic_xito_logo);
-        header.addView(logo, new LinearLayout.LayoutParams(dp(62), dp(62)));
+        header.addView(logo, new LinearLayout.LayoutParams(dp(64), dp(64)));
 
         LinearLayout titleCol = new LinearLayout(this);
         titleCol.setOrientation(LinearLayout.VERTICAL);
@@ -252,11 +318,18 @@ public class MainActivity extends Activity {
         appTitle.setLetterSpacing(0.06f);
         titleCol.addView(appTitle);
 
+        TextView tagline = new TextView(this);
+        tagline.setText("Tu panel. Tu control.");
+        tagline.setTextSize(13f);
+        tagline.setTextColor(Color.parseColor("#9BA6C4"));
+        titleCol.addView(tagline);
+
         keyCountdownTv = new TextView(this);
         long exp = KeyAuthManager.getExpirationMs(this);
         keyCountdownTv.setText("Validez de la clave: " + KeyAuthManager.formatRemainingTime(exp));
-        keyCountdownTv.setTextSize(12f);
+        keyCountdownTv.setTextSize(11f);
         keyCountdownTv.setTextColor(Color.parseColor("#BC13FE"));
+        keyCountdownTv.setPadding(0, dp(2), 0, 0);
         titleCol.addView(keyCountdownTv);
 
         Button logoutBtn = new Button(this);
@@ -265,7 +338,7 @@ public class MainActivity extends Activity {
         logoutBtn.setTextColor(Color.parseColor("#FF2A85"));
         logoutBtn.setBackgroundResource(R.drawable.btn_neon_secondary);
         logoutBtn.setOnClickListener(v -> {
-            stopService(new Intent(MainActivity.this, FloatingPanelService.class));
+            stopProxyAndOverlayServices();
             KeyAuthManager.logout(MainActivity.this);
             buildLoginUi();
         });
@@ -274,81 +347,401 @@ public class MainActivity extends Activity {
         header.addView(logoutBtn, new LinearLayout.LayoutParams(dp(74), dp(38)));
         root.addView(header, headerLp);
 
+        TextView heroTitle = new TextView(this);
+        heroTitle.setText("Prepara. Conecta. Controla.");
+        heroTitle.setTextSize(22f);
+        heroTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        heroTitle.setTextColor(Color.parseColor("#F4F7FF"));
+        root.addView(heroTitle);
+
+        TextView heroSub = new TextView(this);
+        heroSub.setText("Configura el acceso abajo. Después, usa el menú flotante dentro de la aplicación.");
+        heroSub.setTextSize(13f);
+        heroSub.setTextColor(Color.parseColor("#9BA6C4"));
+        heroSub.setPadding(0, dp(4), 0, dp(18));
+        root.addView(heroSub);
+
+        // =====================================================================
         // SECCIÓN 01: ELIGE LA APLICACIÓN
-        LinearLayout card1 = createSectionCard("01  /  ELIGE LA APLICACIÓN", "Selecciona el perfil donde usarás el panel flotante XITO MODS.");
+        // =====================================================================
+        LinearLayout card1 = createSectionCard("01  /  ELIGE LA APLICACIÓN", "Selecciona dónde usarás el proxy.");
+        LinearLayout appStatusRow = new LinearLayout(this);
+        appStatusRow.setOrientation(LinearLayout.HORIZONTAL);
+        appStatusRow.setGravity(Gravity.CENTER_VERTICAL);
+        appStatusRow.setPadding(0, 0, 0, dp(12));
+
+        appStatusDot = createStatusDot(true);
+        LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dp(9), dp(9));
+        dotLp.rightMargin = dp(10);
+        appStatusRow.addView(appStatusDot, dotLp);
+
         selectedAppTv = new TextView(this);
-        String savedPkg = prefs.getString("selected_app", "FF MAX (com.dts.freefiremax)");
-        selectedAppTv.setText("Aplicación activa: " + savedPkg);
-        selectedAppTv.setTextColor(Color.parseColor("#00F5D4"));
-        selectedAppTv.setTextSize(13f);
-        selectedAppTv.setPadding(0, 0, 0, dp(10));
-        card1.addView(selectedAppTv);
+        String savedApp = prefs.getString("selected_app", "FF MAX (com.dts.freefiremax)");
+        selectedAppTv.setText(savedApp);
+        selectedAppTv.setTextColor(Color.parseColor("#F4F7FF"));
+        selectedAppTv.setTextSize(14f);
+        selectedAppTv.setTypeface(Typeface.DEFAULT_BOLD);
+        selectedAppTv.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        appStatusRow.addView(selectedAppTv);
+        card1.addView(appStatusRow);
+
+        Button btnSelectApp = createNeonButton("SELECCIONAR APLICACIÓN", false, v -> openAppPickerDialog());
+        LinearLayout.LayoutParams fullBtnLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(50));
+        fullBtnLp.bottomMargin = dp(8);
+        card1.addView(btnSelectApp, fullBtnLp);
 
         LinearLayout rowApps = new LinearLayout(this);
         rowApps.setOrientation(LinearLayout.HORIZONTAL);
-        Button btnFfMax = createNeonButton("FF MAX", false, v -> selectAppProfile("FF MAX (com.dts.freefiremax)"));
-        Button btnFfNorm = createNeonButton("FF NORMAL", false, v -> selectAppProfile("FF NORMAL (com.dts.freefireth)"));
-        LinearLayout.LayoutParams halfLp1 = new LinearLayout.LayoutParams(0, dp(48), 1f);
-        halfLp1.rightMargin = dp(6);
-        LinearLayout.LayoutParams halfLp2 = new LinearLayout.LayoutParams(0, dp(48), 1f);
-        halfLp2.leftMargin = dp(6);
+        Button btnFfMax = createNeonButton("FF MAX", false,
+                v -> selectAppProfile("FF MAX (com.dts.freefiremax)", "com.dts.freefiremax"));
+        Button btnFfNorm = createNeonButton("FF NORMAL", false,
+                v -> selectAppProfile("FF NORMAL (com.dts.freefireth)", "com.dts.freefireth"));
+        LinearLayout.LayoutParams halfLp1 = new LinearLayout.LayoutParams(0, dp(50), 1f);
+        halfLp1.rightMargin = dp(5);
+        LinearLayout.LayoutParams halfLp2 = new LinearLayout.LayoutParams(0, dp(50), 1f);
+        halfLp2.leftMargin = dp(5);
         rowApps.addView(btnFfMax, halfLp1);
         rowApps.addView(btnFfNorm, halfLp2);
         card1.addView(rowApps);
         root.addView(card1);
 
-        // SECCIÓN 02: CONCEDE EL ACCESO
-        LinearLayout card2 = createSectionCard("02  /  CONCEDE EL ACCESO", "Habilita el permiso de superposición para mostrar el panel neón.");
-        LinearLayout permRow = new LinearLayout(this);
-        permRow.setOrientation(LinearLayout.HORIZONTAL);
-        permRow.setGravity(Gravity.CENTER_VERTICAL);
-        TextView permLabel = new TextView(this);
-        permLabel.setText("Mostrar sobre otras aplicaciones");
-        permLabel.setTextColor(Color.parseColor("#F4F7FF"));
-        permLabel.setTextSize(13f);
-        permLabel.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        // =====================================================================
+        // SECCIÓN 02: CONCEDE EL ACCESO (4 Permisos de HEX_ESP)
+        // =====================================================================
+        LinearLayout card2 = createSectionCard("02  /  CONCEDE EL ACCESO", "Revisa los permisos antes de iniciar.");
+
+        vpnPermDot = createStatusDot(false);
+        vpnPermBadge = new TextView(this);
+        card2.addView(createPermissionRow("Servicio VPN", vpnPermDot, vpnPermBadge, v -> requestVpnPermission(false)));
+
+        overlayPermDot = createStatusDot(false);
         overlayPermBadge = new TextView(this);
-        overlayPermBadge.setOnClickListener(v -> requestOverlayPermission());
-        permRow.addView(permLabel);
-        permRow.addView(overlayPermBadge);
-        card2.addView(permRow);
+        card2.addView(createPermissionRow("Mostrar sobre otras aplicaciones", overlayPermDot, overlayPermBadge, v -> requestOverlayPermission()));
+
+        notifPermDot = createStatusDot(false);
+        notifPermBadge = new TextView(this);
+        card2.addView(createPermissionRow("Notificaciones del sistema", notifPermDot, notifPermBadge, v -> requestNotificationPermission()));
+
+        storagePermDot = createStatusDot(false);
+        storagePermBadge = new TextView(this);
+        card2.addView(createPermissionRow("Almacenamiento del dispositivo", storagePermDot, storagePermBadge, v -> requestStoragePermission()));
+
         root.addView(card2);
 
-        // SECCIÓN 03: INICIA EL BOTÓN FLOTANTE
-        LinearLayout card3 = createSectionCard("03  /  INICIA EL BOTÓN FLOTANTE", "Después de iniciar, toca la burbuja XITO MODS para abrir el menú neón.");
-        engineStatusTv = new TextView(this);
-        engineStatusTv.setTextSize(14f);
-        engineStatusTv.setTypeface(Typeface.DEFAULT_BOLD);
-        engineStatusTv.setPadding(0, 0, 0, dp(10));
-        card3.addView(engineStatusTv);
+        // =====================================================================
+        // SECCIÓN 03: INICIA EL BOTÓN FLOTANTE Y PROXY
+        // =====================================================================
+        LinearLayout card3 = createSectionCard("03  /  INICIA EL BOTÓN FLOTANTE", "Confirma la solicitud de VPN cuando Android la solicite.");
 
-        startStopButton = createNeonButton("INICIAR BOTÓN Y PANEL FLOTANTE", true, v -> toggleFloatingService());
-        card3.addView(startStopButton, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(54)));
+        LinearLayout connRow = new LinearLayout(this);
+        connRow.setOrientation(LinearLayout.HORIZONTAL);
+        connRow.setGravity(Gravity.CENTER_VERTICAL);
+        connRow.setPadding(0, 0, 0, dp(12));
+
+        engineStatusDot = createStatusDot(false);
+        LinearLayout.LayoutParams eDotLp = new LinearLayout.LayoutParams(dp(9), dp(9));
+        eDotLp.rightMargin = dp(12);
+        connRow.addView(engineStatusDot, eDotLp);
+
+        LinearLayout connTextCol = new LinearLayout(this);
+        connTextCol.setOrientation(LinearLayout.VERTICAL);
+        connTextCol.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        engineStatusTv = new TextView(this);
+        engineStatusTv.setTextSize(15f);
+        engineStatusTv.setTypeface(Typeface.DEFAULT_BOLD);
+        connTextCol.addView(engineStatusTv);
+
+        engineSubStatusTv = new TextView(this);
+        engineSubStatusTv.setTextSize(11f);
+        engineSubStatusTv.setTextColor(Color.parseColor("#9BA6C4"));
+        engineSubStatusTv.setText("Revisa los permisos y selecciona una aplicación.");
+        connTextCol.addView(engineSubStatusTv);
+
+        connRow.addView(connTextCol);
+        card3.addView(connRow);
+
+        startStopButton = createNeonButton("INICIAR PROXY Y BOTÓN FLOTANTE", true, v -> toggleProxyAndFloatingService());
+        card3.addView(startStopButton, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(56)));
+
+        TextView afterStartHint = new TextView(this);
+        afterStartHint.setText("Después de iniciar, toca el botón flotante para abrir los controles.");
+        afterStartHint.setTextSize(12f);
+        afterStartHint.setTextColor(Color.parseColor("#9BA6C4"));
+        afterStartHint.setPadding(0, dp(10), 0, 0);
+        card3.addView(afterStartHint);
         root.addView(card3);
 
-        // SECCIÓN 04: PERSONALIZA EL PANEL
-        LinearLayout card4 = createSectionCard("04  /  PERSONALIZA", "Tamaño y transparencia del botón y panel flotante en tiempo real.");
-        addDashboardSlider(card4, "TAMAÑO DEL BOTÓN FLOTANTE", "%", "bubble_size", 70, 160, 100);
-        addDashboardSlider(card4, "OPACIDAD DEL PANEL FLOTANTE", "%", "menu_alpha", 50, 100, 94);
+        // =====================================================================
+        // SECCIÓN 04: PERSONALIZA (Tamaño, opacidad y Ocultar Código de la Partida)
+        // =====================================================================
+        LinearLayout card4 = createSectionCard("04  /  PERSONALIZA", "Tamaño, transparencia y apariencia del botón flotante.");
+        addDashboardSlider(card4, "TAMAÑO DEL BOTÓN FLOTANTE", "%", "bubble_size", 70, 250, 100);
+        addDivider(card4);
+        addDashboardSlider(card4, "OPACIDAD DEL BOTÓN FLOTANTE", "%", "menu_alpha", 35, 100, 92);
+        addDivider(card4);
+
+        // OCULTAR CÓDIGO DE LA PARTIDA + Sub-contenedor (Grosor y Longitud de la barra)
+        boolean hideCodeOn = prefs.getBoolean("hide_match_code", false);
+        boolean barLocked = prefs.getBoolean("match_bar_locked", false);
+        LinearLayout hideCodeRow = new LinearLayout(this);
+        hideCodeRow.setOrientation(LinearLayout.HORIZONTAL);
+        hideCodeRow.setGravity(Gravity.CENTER_VERTICAL);
+        hideCodeRow.setPadding(0, dp(8), 0, dp(8));
+
+        LinearLayout hideCodeTextCol = new LinearLayout(this);
+        hideCodeTextCol.setOrientation(LinearLayout.VERTICAL);
+        hideCodeTextCol.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView hideCodeTitle = new TextView(this);
+        hideCodeTitle.setText("OCULTAR CÓDIGO DE LA PARTIDA");
+        hideCodeTitle.setTextColor(Color.parseColor("#F4F7FF"));
+        hideCodeTitle.setTextSize(14f);
+        hideCodeTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        hideCodeTextCol.addView(hideCodeTitle);
+
+        hideCodeSubTv = new TextView(this);
+        hideCodeSubTv.setText(barLocked
+                ? "Posición bloqueada (mantén 2s sobre la barra para desbloquear)"
+                : "Arrastra libremente; mantén pulsado 2 segundos para bloquear la posición");
+        hideCodeSubTv.setTextColor(Color.parseColor("#9BA6C4"));
+        hideCodeSubTv.setTextSize(12f);
+        hideCodeSubTv.setPadding(0, dp(2), 0, 0);
+        hideCodeTextCol.addView(hideCodeSubTv);
+
+        hideCodeBadge = new TextView(this);
+        styleSwitchBadge(hideCodeBadge, hideCodeOn, "Visible", "Oculto");
+        hideCodeBadge.setOnClickListener(v -> {
+            boolean next = !prefs.getBoolean("hide_match_code", false);
+            prefs.edit().putBoolean("hide_match_code", next).apply();
+            styleSwitchBadge(hideCodeBadge, next, "Visible", "Oculto");
+            notifyServiceRefresh();
+        });
+
+        hideCodeRow.addView(hideCodeTextCol);
+        hideCodeRow.addView(hideCodeBadge);
+        card4.addView(hideCodeRow);
+
+        LinearLayout barSubBox = createSubContainer();
+        addDashboardSlider(barSubBox, "GROSOR DE LA BARRA", "dp", "bar_thickness_dp", 10, 40, 16);
+        addDashboardSlider(barSubBox, "LONGITUD DE LA BARRA", "dp", "bar_length_dp", 80, 300, 220);
+        card4.addView(barSubBox);
         root.addView(card4);
 
-        // SECCIÓN 05: MIRA PERSONALIZADA NEÓN
-        LinearLayout card5 = createSectionCard("05  /  MIRA PERSONALIZADA NEÓN", "Elige entre los 8 estilos y 9 colores neón en tiempo real.");
+        // =====================================================================
+        // SECCIÓN 05: AJUSTES AVANZADOS (Módulos completos de HEX_ESP)
+        // =====================================================================
+        LinearLayout card5 = createSectionCard("05  /  AJUSTES AVANZADOS", "Opciones adicionales del proxy. Ajusta cuando lo necesites.");
+
+        // 1. FANTASMA V2 (GHOST V2)
+        addModuleToggleRow(card5, "FANTASMA V2 (GHOST V2)", "Estado del módulo", "hex_ghost_v2", false, null);
+        addDivider(card5);
+
+        // 2. LATENCIA DE PING
+        addModuleToggleRow(card5, "LATENCIA DE PING", "Estado del módulo", "hex_ping_latency", false, null);
+        addDivider(card5);
+
+        // 3. INVISIBLE V2 + Velocidad de repetición (retardo)
+        addModuleToggleRow(card5, "INVISIBLE V2", "Estado del módulo", "hex_invisible_v2", false, null);
+        LinearLayout invSubBox = createSubContainer();
+        addDashboardSlider(invSubBox, "Velocidad de repetición (retardo)", "ms", "hex_repeat_delay_ms", 1, 50, 1);
+        card5.addView(invSubBox);
+        addDivider(card5);
+
+        // 4. Detener el teletransporte automáticamente
+        addModuleToggleRow(card5,
+                "Detener el teletransporte automáticamente",
+                "Desactivar el teletransporte mientras la congelación esté activa",
+                "hex_auto_stop_tp",
+                true,
+                isEnabled -> {
+                    if (isEnabled && prefs.getBoolean("hex_freeze", false)) {
+                        prefs.edit()
+                                .putBoolean("hex_tp_target", false)
+                                .putBoolean("hex_tp_infinite", false)
+                                .apply();
+                        refreshModuleStatesUI();
+                        notifyServiceRefresh();
+                    }
+                });
+        addDivider(card5);
+
+        // 5. CONGELAR
+        LinearLayout freezeRow = new LinearLayout(this);
+        freezeRow.setOrientation(LinearLayout.HORIZONTAL);
+        freezeRow.setGravity(Gravity.CENTER_VERTICAL);
+        freezeRow.setPadding(0, dp(8), 0, dp(8));
+
+        LinearLayout freezeCol = new LinearLayout(this);
+        freezeCol.setOrientation(LinearLayout.VERTICAL);
+        freezeCol.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView freezeTitle = new TextView(this);
+        freezeTitle.setText("CONGELAR");
+        freezeTitle.setTextColor(Color.parseColor("#F4F7FF"));
+        freezeTitle.setTextSize(14f);
+        freezeTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        freezeCol.addView(freezeTitle);
+
+        freezeSubTv = new TextView(this);
+        freezeSubTv.setTextColor(Color.parseColor("#9BA6C4"));
+        freezeSubTv.setTextSize(12f);
+        freezeCol.addView(freezeSubTv);
+
+        freezeBadge = new TextView(this);
+        freezeBadge.setOnClickListener(v -> {
+            boolean next = !prefs.getBoolean("hex_freeze", false);
+            SharedPreferences.Editor ed = prefs.edit().putBoolean("hex_freeze", next);
+            if (next && prefs.getBoolean("hex_auto_stop_tp", true)) {
+                ed.putBoolean("hex_tp_target", false);
+                ed.putBoolean("hex_tp_infinite", false);
+                Toast.makeText(MainActivity.this, "CONGELAR activo: Teletransporte detenido automáticamente", Toast.LENGTH_SHORT).show();
+            }
+            ed.apply();
+            refreshModuleStatesUI();
+            notifyServiceRefresh();
+        });
+        freezeRow.addView(freezeCol);
+        freezeRow.addView(freezeBadge);
+        card5.addView(freezeRow);
+        addDivider(card5);
+
+        // 6. TELETRANSPORTE AL OBJETIVO
+        LinearLayout tpTargetRow = new LinearLayout(this);
+        tpTargetRow.setOrientation(LinearLayout.HORIZONTAL);
+        tpTargetRow.setGravity(Gravity.CENTER_VERTICAL);
+        tpTargetRow.setPadding(0, dp(8), 0, dp(8));
+
+        LinearLayout tpTargetCol = new LinearLayout(this);
+        tpTargetCol.setOrientation(LinearLayout.VERTICAL);
+        tpTargetCol.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView tpTargetTitle = new TextView(this);
+        tpTargetTitle.setText("TELETRANSPORTE AL OBJETIVO");
+        tpTargetTitle.setTextColor(Color.parseColor("#F4F7FF"));
+        tpTargetTitle.setTextSize(14f);
+        tpTargetTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        tpTargetCol.addView(tpTargetTitle);
+
+        tpTargetSubTv = new TextView(this);
+        tpTargetSubTv.setTextColor(Color.parseColor("#9BA6C4"));
+        tpTargetSubTv.setTextSize(12f);
+        tpTargetCol.addView(tpTargetSubTv);
+
+        tpTargetBadge = new TextView(this);
+        tpTargetBadge.setOnClickListener(v -> {
+            if (prefs.getBoolean("hex_freeze", false) && prefs.getBoolean("hex_auto_stop_tp", true)) {
+                Toast.makeText(MainActivity.this, "Desactiva CONGELAR o el bloqueo automático primero", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            boolean next = !prefs.getBoolean("hex_tp_target", false);
+            prefs.edit().putBoolean("hex_tp_target", next).apply();
+            refreshModuleStatesUI();
+            notifyServiceRefresh();
+        });
+        tpTargetRow.addView(tpTargetCol);
+        tpTargetRow.addView(tpTargetBadge);
+        card5.addView(tpTargetRow);
+        addDivider(card5);
+
+        // 7. TELETRANSPORTE INFINITO + Sub-contenedor (Paquetes por ráfaga, Retardo entre ráfagas, Búfer de recuperación)
+        LinearLayout tpInfRow = new LinearLayout(this);
+        tpInfRow.setOrientation(LinearLayout.HORIZONTAL);
+        tpInfRow.setGravity(Gravity.CENTER_VERTICAL);
+        tpInfRow.setPadding(0, dp(8), 0, dp(8));
+
+        LinearLayout tpInfCol = new LinearLayout(this);
+        tpInfCol.setOrientation(LinearLayout.VERTICAL);
+        tpInfCol.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView tpInfTitle = new TextView(this);
+        tpInfTitle.setText("TELETRANSPORTE INFINITO");
+        tpInfTitle.setTextColor(Color.parseColor("#F4F7FF"));
+        tpInfTitle.setTextSize(14f);
+        tpInfTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        tpInfCol.addView(tpInfTitle);
+
+        tpInfiniteSubTv = new TextView(this);
+        tpInfiniteSubTv.setTextColor(Color.parseColor("#9BA6C4"));
+        tpInfiniteSubTv.setTextSize(12f);
+        tpInfCol.addView(tpInfiniteSubTv);
+
+        tpInfiniteBadge = new TextView(this);
+        tpInfiniteBadge.setOnClickListener(v -> {
+            if (prefs.getBoolean("hex_freeze", false) && prefs.getBoolean("hex_auto_stop_tp", true)) {
+                Toast.makeText(MainActivity.this, "Desactiva CONGELAR o el bloqueo automático primero", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            boolean next = !prefs.getBoolean("hex_tp_infinite", false);
+            prefs.edit().putBoolean("hex_tp_infinite", next).apply();
+            refreshModuleStatesUI();
+            notifyServiceRefresh();
+        });
+        tpInfRow.addView(tpInfCol);
+        tpInfRow.addView(tpInfiniteBadge);
+        card5.addView(tpInfRow);
+
+        LinearLayout tpInfSubBox = createSubContainer();
+        addDashboardSlider(tpInfSubBox, "Paquetes por ráfaga", " paq", "hex_burst_packets", 1, 16, 1);
+        addDashboardSlider(tpInfSubBox, "Retardo entre ráfagas", "ms", "hex_burst_delay_ms", 5, 25, 5);
+        addModuleToggleRow(tpInfSubBox, "Búfer de recuperación", "Modo de retención de movimiento", "hex_recovery_buffer", false, null);
+        card5.addView(tpInfSubBox);
+        addDivider(card5);
+
+        // 8. Modo en vivo (desarrollador)
+        addModuleToggleRow(card5, "Modo en vivo (desarrollador)", "Solo para desarrolladores", "hex_live_dev_mode", false, null);
+        root.addView(card5);
+
+        // =====================================================================
+        // SECCIÓN 06: MIRA PERSONALIZADA
+        // =====================================================================
+        LinearLayout card6 = createSectionCard("06  /  MIRA PERSONALIZADA", "Ajusta el estilo y la visibilidad de tu mira.");
+
+        boolean crossEnabled = prefs.getBoolean("cross_enabled", true);
+        LinearLayout showCrossRow = new LinearLayout(this);
+        showCrossRow.setOrientation(LinearLayout.HORIZONTAL);
+        showCrossRow.setGravity(Gravity.CENTER_VERTICAL);
+        showCrossRow.setPadding(0, 0, 0, dp(10));
+
+        LinearLayout showCrossCol = new LinearLayout(this);
+        showCrossCol.setOrientation(LinearLayout.VERTICAL);
+        showCrossCol.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView showCrossTitle = new TextView(this);
+        showCrossTitle.setText("MOSTRAR MIRA");
+        showCrossTitle.setTextColor(Color.parseColor("#F4F7FF"));
+        showCrossTitle.setTextSize(14f);
+        showCrossTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        showCrossCol.addView(showCrossTitle);
+
+        final TextView showCrossSub = new TextView(this);
+        showCrossSub.setText(crossEnabled ? "Visible" : "Oculto");
+        showCrossSub.setTextColor(Color.parseColor("#9BA6C4"));
+        showCrossSub.setTextSize(12f);
+        showCrossCol.addView(showCrossSub);
+
+        final TextView showCrossBadge = new TextView(this);
+        styleSwitchBadge(showCrossBadge, crossEnabled, "Visible", "Oculto");
+        showCrossBadge.setOnClickListener(v -> {
+            boolean next = !prefs.getBoolean("cross_enabled", true);
+            prefs.edit().putBoolean("cross_enabled", next).apply();
+            showCrossSub.setText(next ? "Visible" : "Oculto");
+            styleSwitchBadge(showCrossBadge, next, "Visible", "Oculto");
+            notifyServiceRefresh();
+        });
+        showCrossRow.addView(showCrossCol);
+        showCrossRow.addView(showCrossBadge);
+        card6.addView(showCrossRow);
+
         String[] styleNames = {
-            "•
-Punto", "＋
-Cruz", "○
-Círculo", "⊙
-Anillo",
-            "⌖
-Precisión", "◌
-Dinámica", "⌜⌟
-Mínima", "✣
-XITO Neón"
+            "•\nPunto", "＋\nCruz", "○\nCírculo", "⊙\nPunto y anillo",
+            "⌖\nPrecisión", "◌\nDinámica", "⌜⌟\nMínima", "✣\nPersonalizada"
         };
         GridLayout grid = new GridLayout(this);
         grid.setColumnCount(4);
         grid.setRowCount(2);
+        int currentStyle = prefs.getInt("cross_style", 0);
         for (int i = 0; i < styleNames.length; i++) {
             final int styleIdx = i;
             TextView styleBtn = new TextView(this);
@@ -356,51 +749,252 @@ XITO Neón"
             styleBtn.setGravity(Gravity.CENTER);
             styleBtn.setTextSize(11f);
             styleBtn.setTextColor(Color.parseColor("#F4F7FF"));
-            styleBtn.setBackgroundResource(R.drawable.bg_neon_tab);
+            styleBtn.setBackgroundResource(i == currentStyle ? R.drawable.bg_neon_tab_selected : R.drawable.bg_neon_tab);
             GridLayout.LayoutParams glp = new GridLayout.LayoutParams();
             glp.width = 0;
-            glp.height = dp(54);
+            glp.height = dp(56);
             glp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
             glp.setMargins(dp(3), dp(3), dp(3), dp(3));
             styleBtn.setLayoutParams(glp);
             styleBtn.setOnClickListener(v -> {
                 prefs.edit().putInt("cross_style", styleIdx).apply();
+                updateCrossStyleHighlight(styleIdx);
                 notifyServiceRefresh();
-                Toast.makeText(MainActivity.this, "Estilo de mira actualizado", Toast.LENGTH_SHORT).show();
             });
+            crossStyleButtons.add(styleBtn);
             grid.addView(styleBtn);
         }
-        card5.addView(grid);
+        card6.addView(grid);
 
-        // Selector de 9 colores neón
+        TextView colorLabel = new TextView(this);
+        colorLabel.setText("Color de la mira");
+        colorLabel.setTextSize(13f);
+        colorLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        colorLabel.setTextColor(Color.parseColor("#9BA6C4"));
+        colorLabel.setPadding(0, dp(10), 0, dp(4));
+        card6.addView(colorLabel);
+
         LinearLayout colorRow = new LinearLayout(this);
         colorRow.setOrientation(LinearLayout.HORIZONTAL);
         colorRow.setGravity(Gravity.CENTER_VERTICAL);
-        colorRow.setPadding(0, dp(12), 0, dp(8));
+        colorRow.setPadding(0, dp(4), 0, dp(8));
         for (final int c : NEON_COLORS) {
             View swatch = new View(this);
             GradientDrawable gd = new GradientDrawable();
-            gd.setShape(GradientDrawable.OVAL);
+            gd.setShape(GradientDrawable.RECTANGLE);
+            gd.setCornerRadius(dp(8));
             gd.setColor(c);
-            gd.setStroke(dp(1.5f), Color.WHITE);
+            gd.setStroke(dp(1.2f), Color.parseColor("#80FFFFFF"));
             swatch.setBackground(gd);
             LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(dp(26), dp(26));
-            slp.rightMargin = dp(8);
+            slp.rightMargin = dp(6);
             swatch.setOnClickListener(v -> {
                 prefs.edit().putInt("cross_color", c).apply();
+                if (crossColorPreviewBar != null) {
+                    crossColorPreviewBar.setBackgroundColor(c);
+                }
                 notifyServiceRefresh();
             });
             colorRow.addView(swatch, slp);
         }
-        card5.addView(colorRow);
+        card6.addView(colorRow);
 
-        addDashboardSlider(card5, "TAMAÑO DE LA MIRA", "dp", "cross_size", 16, 80, 42);
-        addDashboardSlider(card5, "OPACIDAD DE LA MIRA", "%", "cross_alpha", 25, 100, 100);
-        root.addView(card5);
+        crossColorPreviewBar = new View(this);
+        int savedColor = prefs.getInt("cross_color", NEON_COLORS[0]);
+        crossColorPreviewBar.setBackgroundColor(savedColor);
+        LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(5));
+        barLp.bottomMargin = dp(10);
+        card6.addView(crossColorPreviewBar, barLp);
+
+        addDashboardSlider(card6, "TAMAÑO DE LA MIRA", "dp", "cross_size", 16, 92, 42);
+        addDashboardSlider(card6, "OPACIDAD DE LA MIRA", "%", "cross_alpha", 35, 100, 100);
+        root.addView(card6);
+
+        // Pie de versión
+        TextView footerTv = new TextView(this);
+        footerTv.setText("XITO MODS × HEX ESP V4");
+        footerTv.setTextSize(11f);
+        footerTv.setTextColor(Color.parseColor("#9BA6C4"));
+        footerTv.setGravity(Gravity.CENTER);
+        footerTv.setPadding(dp(12), dp(10), dp(12), dp(16));
+        root.addView(footerTv);
 
         setContentView(scroll);
+        refreshModuleStatesUI();
         refreshStatusBadges();
         uiHandler.post(tickRunnable);
+    }
+
+    private void updateCrossStyleHighlight(int selectedIdx) {
+        for (int i = 0; i < crossStyleButtons.size(); i++) {
+            TextView b = crossStyleButtons.get(i);
+            b.setBackgroundResource(i == selectedIdx ? R.drawable.bg_neon_tab_selected : R.drawable.bg_neon_tab);
+            b.setTextColor(Color.parseColor(i == selectedIdx ? "#00F5D4" : "#F4F7FF"));
+        }
+    }
+
+    private interface ToggleCallback {
+        void onToggled(boolean enabled);
+    }
+
+    private void addModuleToggleRow(LinearLayout parent, String title, final String defaultSub,
+                                    final String prefKey, final boolean defVal, final ToggleCallback callback) {
+        final SharedPreferences prefs = getSharedPreferences(FloatingPanelService.UI_PREFS, MODE_PRIVATE);
+        boolean current = prefs.getBoolean(prefKey, defVal);
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(8), 0, dp(8));
+
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView t1 = new TextView(this);
+        t1.setText(title);
+        t1.setTextColor(Color.parseColor("#F4F7FF"));
+        t1.setTextSize(14f);
+        t1.setTypeface(Typeface.DEFAULT_BOLD);
+        col.addView(t1);
+
+        final TextView t2 = new TextView(this);
+        t2.setText("Estado del módulo".equals(defaultSub)
+                ? (current ? "Módulo activo en tiempo real" : "Estado del módulo: Inactivo")
+                : defaultSub);
+        t2.setTextColor(Color.parseColor(current ? "#00F5D4" : "#9BA6C4"));
+        t2.setTextSize(12f);
+        t2.setPadding(0, dp(2), 0, 0);
+        col.addView(t2);
+
+        final TextView badge = new TextView(this);
+        styleSwitchBadge(badge, current, "ACTIVO", "OFF");
+        badge.setOnClickListener(v -> {
+            boolean next = !prefs.getBoolean(prefKey, defVal);
+            prefs.edit().putBoolean(prefKey, next).apply();
+            styleSwitchBadge(badge, next, "ACTIVO", "OFF");
+            if ("Estado del módulo".equals(defaultSub)) {
+                t2.setText(next ? "Módulo activo en tiempo real" : "Estado del módulo: Inactivo");
+            }
+            t2.setTextColor(Color.parseColor(next ? "#00F5D4" : "#9BA6C4"));
+            if (callback != null) {
+                callback.onToggled(next);
+            }
+            notifyServiceRefresh();
+        });
+
+        row.addView(col);
+        row.addView(badge);
+        parent.addView(row);
+    }
+
+    private void refreshModuleStatesUI() {
+        SharedPreferences prefs = getSharedPreferences(FloatingPanelService.UI_PREFS, MODE_PRIVATE);
+        boolean freeze = prefs.getBoolean("hex_freeze", false);
+        boolean tpTarget = prefs.getBoolean("hex_tp_target", false);
+        boolean tpInf = prefs.getBoolean("hex_tp_infinite", false);
+
+        if (freezeBadge != null && freezeSubTv != null) {
+            styleSwitchBadge(freezeBadge, freeze, "ACTIVO", "OFF");
+            freezeSubTv.setText(freeze ? "Congelación de paquetes activa" : "Estado del módulo: Inactivo");
+            freezeSubTv.setTextColor(Color.parseColor(freeze ? "#00F5D4" : "#9BA6C4"));
+        }
+        if (tpTargetBadge != null && tpTargetSubTv != null) {
+            styleSwitchBadge(tpTargetBadge, tpTarget, "ACTIVO", "OFF");
+            tpTargetSubTv.setText(tpTarget ? "Teletransporte al objetivo activo" : "Estado del módulo: Inactivo");
+            tpTargetSubTv.setTextColor(Color.parseColor(tpTarget ? "#00F5D4" : "#9BA6C4"));
+        }
+        if (tpInfiniteBadge != null && tpInfiniteSubTv != null) {
+            styleSwitchBadge(tpInfiniteBadge, tpInf, "ACTIVO", "OFF");
+            tpInfiniteSubTv.setText(tpInf ? "Ráfaga de teletransporte infinito activa" : "Estado del módulo: Inactivo");
+            tpInfiniteSubTv.setTextColor(Color.parseColor(tpInf ? "#00F5D4" : "#9BA6C4"));
+        }
+    }
+
+    private LinearLayout createSubContainer() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable gd = new GradientDrawable();
+        gd.setColor(Color.parseColor("#12FFFFFF"));
+        gd.setCornerRadius(dp(12));
+        gd.setStroke(dp(1), Color.parseColor("#2600F5D4"));
+        box.setBackground(gd);
+        int p = dp(12);
+        box.setPadding(p, dp(8), p, dp(10));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(4);
+        lp.bottomMargin = dp(6);
+        box.setLayoutParams(lp);
+        return box;
+    }
+
+    private void addDivider(LinearLayout parent) {
+        View div = new View(this);
+        div.setBackgroundColor(Color.parseColor("#14FFFFFF"));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(1));
+        lp.topMargin = dp(6);
+        lp.bottomMargin = dp(4);
+        parent.addView(div, lp);
+    }
+
+    private View createStatusDot(boolean active) {
+        View dot = new View(this);
+        styleStatusDot(dot, active);
+        return dot;
+    }
+
+    private void styleStatusDot(View dot, boolean active) {
+        if (dot == null) return;
+        GradientDrawable gd = new GradientDrawable();
+        gd.setShape(GradientDrawable.OVAL);
+        gd.setColor(Color.parseColor(active ? "#00FF87" : "#FF2A85"));
+        dot.setBackground(gd);
+    }
+
+    private LinearLayout createPermissionRow(String label, View dotView, TextView badgeView, View.OnClickListener listener) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(48));
+
+        LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dp(7), dp(7));
+        dotLp.rightMargin = dp(10);
+        row.addView(dotView, dotLp);
+
+        TextView tv = new TextView(this);
+        tv.setText(label);
+        tv.setTextColor(Color.parseColor("#F4F7FF"));
+        tv.setTextSize(13f);
+        tv.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(tv);
+
+        badgeView.setOnClickListener(listener);
+        row.addView(badgeView);
+        return row;
+    }
+
+    private void styleSwitchBadge(TextView badge, boolean active, String onText, String offText) {
+        if (badge == null) return;
+        badge.setText(active ? onText : offText);
+        badge.setTextSize(11f);
+        badge.setTypeface(Typeface.DEFAULT_BOLD);
+        badge.setGravity(Gravity.CENTER);
+        badge.setPadding(dp(14), dp(7), dp(14), dp(7));
+        GradientDrawable gd = new GradientDrawable();
+        gd.setCornerRadius(dp(999));
+        if (active) {
+            gd.setColor(Color.parseColor("#2E00F5D4"));
+            gd.setStroke(dp(1.2f), Color.parseColor("#00F5D4"));
+            badge.setTextColor(Color.parseColor("#00F5D4"));
+        } else {
+            gd.setColor(Color.parseColor("#1A9BA6C4"));
+            gd.setStroke(dp(1f), Color.parseColor("#409BA6C4"));
+            badge.setTextColor(Color.parseColor("#9BA6C4"));
+        }
+        badge.setBackground(gd);
     }
 
     private LinearLayout createSectionCard(String title, String subtitle) {
@@ -460,6 +1054,7 @@ XITO Neón"
         tvVal.setText(cur + unit);
         tvVal.setTextColor(Color.parseColor("#00F5D4"));
         tvVal.setTextSize(12f);
+        tvVal.setTypeface(Typeface.DEFAULT_BOLD);
 
         row.addView(tvLabel);
         row.addView(tvVal);
@@ -467,7 +1062,7 @@ XITO Neón"
 
         SeekBar sb = new SeekBar(this);
         sb.setMax(max - min);
-        sb.setProgress(Math.max(0, cur - min));
+        sb.setProgress(Math.max(0, Math.min(max - min, cur - min)));
         sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
@@ -482,13 +1077,86 @@ XITO Neón"
         parent.addView(sb);
     }
 
-    private void selectAppProfile(String profileName) {
-        getSharedPreferences(FloatingPanelService.UI_PREFS, MODE_PRIVATE)
-                .edit().putString("selected_app", profileName).apply();
-        if (selectedAppTv != null) {
-            selectedAppTv.setText("Aplicación activa: " + profileName);
+    private void openAppPickerDialog() {
+        PackageManager pm = getPackageManager();
+        List<ApplicationInfo> apps = pm.getInstalledApplications(PackageManager.GET_META_DATA);
+        final List<String> displayNames = new ArrayList<>();
+        final List<String> pkgNames = new ArrayList<>();
+
+        displayNames.add("FF MAX (com.dts.freefiremax)");
+        pkgNames.add("com.dts.freefiremax");
+        displayNames.add("FF NORMAL (com.dts.freefireth)");
+        pkgNames.add("com.dts.freefireth");
+
+        List<String[]> userApps = new ArrayList<>();
+        for (ApplicationInfo app : apps) {
+            if (pm.getLaunchIntentForPackage(app.packageName) != null) {
+                String label = String.valueOf(pm.getApplicationLabel(app));
+                if (!"com.dts.freefiremax".equals(app.packageName)
+                        && !"com.dts.freefireth".equals(app.packageName)
+                        && !getPackageName().equals(app.packageName)) {
+                    userApps.add(new String[]{label + " (" + app.packageName + ")", app.packageName});
+                }
+            }
         }
+        Collections.sort(userApps, (a, b) -> a[0].compareToIgnoreCase(b[0]));
+        for (String[] item : userApps) {
+            displayNames.add(item[0]);
+            pkgNames.add(item[1]);
+        }
+
+        CharSequence[] items = displayNames.toArray(new CharSequence[0]);
+        new AlertDialog.Builder(this)
+                .setTitle("SELECCIONAR APLICACIÓN")
+                .setItems(items, (dialog, which) -> selectAppProfile(displayNames.get(which), pkgNames.get(which)))
+                .setNegativeButton("Cancelar", null)
+                .show();
+    }
+
+    private void selectAppProfile(String profileName, String pkgName) {
+        getSharedPreferences(FloatingPanelService.UI_PREFS, MODE_PRIVATE)
+                .edit()
+                .putString("selected_app", profileName)
+                .putString("selected_app_pkg", pkgName)
+                .apply();
+        if (selectedAppTv != null) {
+            selectedAppTv.setText(profileName);
+        }
+        styleStatusDot(appStatusDot, true);
+        notifyServiceRefresh();
         Toast.makeText(this, "Seleccionado: " + profileName, Toast.LENGTH_SHORT).show();
+    }
+
+    private boolean isVpnPermissionGranted() {
+        try {
+            return VpnService.prepare(this) == null;
+        } catch (Exception e) {
+            return getSharedPreferences(FloatingPanelService.UI_PREFS, MODE_PRIVATE)
+                    .getBoolean("vpn_perm_granted", false);
+        }
+    }
+
+    private void requestVpnPermission(boolean autoStartAfter) {
+        try {
+            Intent intent = VpnService.prepare(this);
+            if (intent != null) {
+                pendingStartAfterVpnGrant = autoStartAfter;
+                startActivityForResult(intent, REQ_VPN_PERMISSION);
+            } else {
+                getSharedPreferences(FloatingPanelService.UI_PREFS, MODE_PRIVATE)
+                        .edit().putBoolean("vpn_perm_granted", true).apply();
+                if (autoStartAfter) {
+                    startProxyAndOverlayServices();
+                } else {
+                    Toast.makeText(this, "Servicio VPN: Permitido", Toast.LENGTH_SHORT).show();
+                }
+                refreshStatusBadges();
+            }
+        } catch (Exception e) {
+            if (autoStartAfter) {
+                startProxyAndOverlayServices();
+            }
+        }
     }
 
     private boolean canDrawOverlays() {
@@ -501,25 +1169,87 @@ XITO Neón"
                     Uri.parse("package:" + getPackageName()));
             startActivityForResult(intent, REQ_OVERLAY_PERMISSION);
         } else {
-            Toast.makeText(this, "Permiso de superposición concedido", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Mostrar sobre otras aplicaciones: Permitido", Toast.LENGTH_SHORT).show();
         }
     }
 
-    private void toggleFloatingService() {
+    private boolean isNotificationEnabled() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            return nm == null || nm.areNotificationsEnabled();
+        }
+        return true;
+    }
+
+    private void requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33) {
+            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, REQ_NOTIF_PERMISSION);
+        } else if (!isNotificationEnabled() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+            startActivity(intent);
+        } else {
+            Toast.makeText(this, "Notificaciones del sistema: Permitido", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private boolean isStorageAllowed() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            return true;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            return checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+        }
+        return true;
+    }
+
+    private void requestStoragePermission() {
+        if (!isStorageAllowed() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            requestPermissions(new String[]{
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            }, REQ_STORAGE_PERMISSION);
+        } else {
+            Toast.makeText(this, "Almacenamiento del dispositivo: Permitido", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void toggleProxyAndFloatingService() {
         if (!canDrawOverlays()) {
+            Toast.makeText(this, "Concede primero el permiso 'Mostrar sobre otras aplicaciones'", Toast.LENGTH_SHORT).show();
             requestOverlayPermission();
             return;
         }
-        Intent svc = new Intent(this, FloatingPanelService.class);
-        if (FloatingPanelService.isRunning) {
-            stopService(svc);
+        if (FloatingPanelService.isRunning || XitoProxyVpnService.isConnected) {
+            stopProxyAndOverlayServices();
         } else {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(svc);
-            } else {
-                startService(svc);
-            }
+            requestVpnPermission(true);
         }
+    }
+
+    private void startProxyAndOverlayServices() {
+        Intent vpnIntent = new Intent(this, XitoProxyVpnService.class);
+        vpnIntent.setAction(XitoProxyVpnService.ACTION_START);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(vpnIntent);
+        } else {
+            startService(vpnIntent);
+        }
+
+        Intent floatIntent = new Intent(this, FloatingPanelService.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(floatIntent);
+        } else {
+            startService(floatIntent);
+        }
+        uiHandler.postDelayed(this::refreshStatusBadges, 250L);
+    }
+
+    private void stopProxyAndOverlayServices() {
+        stopService(new Intent(this, FloatingPanelService.class));
+        Intent stopVpn = new Intent(this, XitoProxyVpnService.class);
+        stopVpn.setAction(XitoProxyVpnService.ACTION_STOP);
+        stopService(stopVpn);
         uiHandler.postDelayed(this::refreshStatusBadges, 250L);
     }
 
@@ -529,21 +1259,55 @@ XITO Neón"
             i.setAction(FloatingPanelService.ACTION_REFRESH);
             startService(i);
         }
+        if (XitoProxyVpnService.isConnected) {
+            Intent vpnSync = new Intent(this, XitoProxyVpnService.class);
+            vpnSync.setAction(XitoProxyVpnService.ACTION_SYNC);
+            startService(vpnSync);
+        }
     }
 
     private void refreshStatusBadges() {
-        if (overlayPermBadge != null) {
-            boolean ok = canDrawOverlays();
-            overlayPermBadge.setText(ok ? "PERMITIDO" : "CONCEDER");
-            overlayPermBadge.setTextColor(Color.parseColor(ok ? "#00F5D4" : "#FF2A85"));
-            overlayPermBadge.setBackgroundResource(R.drawable.bg_neon_badge);
-            overlayPermBadge.setPadding(dp(12), dp(6), dp(12), dp(6));
+        SharedPreferences prefs = getSharedPreferences(FloatingPanelService.UI_PREFS, MODE_PRIVATE);
+
+        boolean vpnOk = isVpnPermissionGranted();
+        styleStatusDot(vpnPermDot, vpnOk);
+        styleSwitchBadge(vpnPermBadge, vpnOk, "Permitido", "No permitido");
+
+        boolean overlayOk = canDrawOverlays();
+        styleStatusDot(overlayPermDot, overlayOk);
+        styleSwitchBadge(overlayPermBadge, overlayOk, "Permitido", "No permitido");
+
+        boolean notifOk = isNotificationEnabled();
+        styleStatusDot(notifPermDot, notifOk);
+        styleSwitchBadge(notifPermBadge, notifOk, "Permitido", "No permitido");
+
+        boolean storageOk = isStorageAllowed();
+        styleStatusDot(storagePermDot, storageOk);
+        styleSwitchBadge(storagePermBadge, storageOk, "Permitido", "No permitido");
+
+        if (hideCodeSubTv != null && hideCodeBadge != null) {
+            boolean hideCodeOn = prefs.getBoolean("hide_match_code", false);
+            boolean barLocked = prefs.getBoolean("match_bar_locked", false);
+            styleSwitchBadge(hideCodeBadge, hideCodeOn, "Visible", "Oculto");
+            hideCodeSubTv.setText(barLocked
+                    ? "Posición bloqueada (mantén 2s sobre la barra para desbloquear)"
+                    : "Arrastra libremente; mantén pulsado 2 segundos para bloquear la posición");
         }
+
+        refreshModuleStatesUI();
+
         if (engineStatusTv != null && startStopButton != null) {
-            boolean active = FloatingPanelService.isRunning;
-            engineStatusTv.setText(active ? "● PANEL FLOTANTE ACTIVO" : "● DESCONECTADO");
+            boolean active = FloatingPanelService.isRunning || XitoProxyVpnService.isConnected;
+            styleStatusDot(engineStatusDot, active);
+            engineStatusTv.setText(active ? "CONECTADO" : "DESCONECTADO");
             engineStatusTv.setTextColor(Color.parseColor(active ? "#00FF87" : "#FF2A85"));
-            startStopButton.setText(active ? "DETENER PANEL FLOTANTE" : "INICIAR BOTÓN Y PANEL FLOTANTE");
+            if (engineSubStatusTv != null) {
+                String app = prefs.getString("selected_app", "FF MAX");
+                engineSubStatusTv.setText(active
+                        ? "Proxy VPN y botón flotante activos en " + app
+                        : "Revisa los permisos y selecciona una aplicación.");
+            }
+            startStopButton.setText(active ? "DETENER PROXY Y BOTÓN FLOTANTE" : "INICIAR PROXY Y BOTÓN FLOTANTE");
         }
     }
 
