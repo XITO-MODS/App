@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">XITO MODS</string>
+    <string name="panel_subtitle">Tu panel. Tu control. Edición Neón.</string>
+    <string name="login_title">ACCESO CON CLAVE</string>
+    <string name="login_hint">Escribe tu clave XITO MODS</string>
+    <string name="btn_login">ACCEDER AL PANEL</string>
+    <string name="btn_get_key">OBTENER CLAVE</string>
+    <string name="status_disconnected">DESCONECTADO</string>
+    <string name="status_connected">PANEL ACTIVO</string>
+    <string name="btn_start_floating">INICIAR BOTÓN Y PANEL FLOTANTE</string>
+    <string name="btn_stop_floating">DETENER PANEL FLOTANTE</string>
+    <string name="select_app">SELECCIONAR APLICACIÓN</string>
+</resources>
