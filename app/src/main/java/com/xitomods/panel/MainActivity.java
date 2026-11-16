@@ -24,7 +24,6 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.GridLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -38,18 +37,6 @@ import java.util.List;
 
 /**
  * Actividad Principal de XITO MODS con todas las funciones originales de HEX_ESP integradas.
- * Incluye:
- * 1. Pantalla de Login con Clave Neón (buildLoginUi) y validación en KeyAuthManager.
- * 2. Diálogo de bienvenida (showJoinPopup).
- * 3. Dashboard completo con las 6 secciones de HEX_ESP:
- *    - 01 / ELIGE LA APLICACIÓN (Selector de apps instaladas + FF MAX + FF NORMAL)
- *    - 02 / CONCEDE EL ACCESO (Servicio VPN, Mostrar sobre otras aplicaciones, Notificaciones, Almacenamiento)
- *    - 03 / INICIA EL BOTÓN FLOTANTE (Inicia/Detiene XitoProxyVpnService + FloatingPanelService)
- *    - 04 / PERSONALIZA (Tamaño y opacidad del botón flotante + Ocultar código de la partida con grosor y longitud de barra)
- *    - 05 / AJUSTES AVANZADOS (Fantasma V2 / Ghost V2, Latencia de Ping, Invisible V2 con velocidad de repetición,
- *           Detener el teletransporte automáticamente, Congelar, Teletransporte al Objetivo, Teletransporte Infinito
- *           con Paquetes por ráfaga, Retardo entre ráfagas y Búfer de recuperación, Modo en vivo desarrollador)
- *    - 06 / MIRA PERSONALIZADA (Mostrar Mira, 8 estilos, 9 colores con barra de vista previa, Tamaño y Opacidad)
  */
 public class MainActivity extends Activity {
     private static final int REQ_OVERLAY_PERMISSION = 2001;
@@ -133,6 +120,7 @@ public class MainActivity extends Activity {
         super.onResume();
         if (KeyAuthManager.hasValidSession(this)) {
             refreshStatusBadges();
+            uiHandler.removeCallbacks(tickRunnable);
             uiHandler.post(tickRunnable);
         }
     }
@@ -482,7 +470,6 @@ public class MainActivity extends Activity {
         addDashboardSlider(card4, "OPACIDAD DEL BOTÓN FLOTANTE", "%", "menu_alpha", 35, 100, 92);
         addDivider(card4);
 
-        // OCULTAR CÓDIGO DE LA PARTIDA + Sub-contenedor (Grosor y Longitud de la barra)
         boolean hideCodeOn = prefs.getBoolean("hide_match_code", false);
         boolean barLocked = prefs.getBoolean("match_bar_locked", false);
         LinearLayout hideCodeRow = new LinearLayout(this);
@@ -534,22 +521,18 @@ public class MainActivity extends Activity {
         // =====================================================================
         LinearLayout card5 = createSectionCard("05  /  AJUSTES AVANZADOS", "Opciones adicionales del proxy. Ajusta cuando lo necesites.");
 
-        // 1. FANTASMA V2 (GHOST V2)
         addModuleToggleRow(card5, "FANTASMA V2 (GHOST V2)", "Estado del módulo", "hex_ghost_v2", false, null);
         addDivider(card5);
 
-        // 2. LATENCIA DE PING
         addModuleToggleRow(card5, "LATENCIA DE PING", "Estado del módulo", "hex_ping_latency", false, null);
         addDivider(card5);
 
-        // 3. INVISIBLE V2 + Velocidad de repetición (retardo)
         addModuleToggleRow(card5, "INVISIBLE V2", "Estado del módulo", "hex_invisible_v2", false, null);
         LinearLayout invSubBox = createSubContainer();
         addDashboardSlider(invSubBox, "Velocidad de repetición (retardo)", "ms", "hex_repeat_delay_ms", 1, 50, 1);
         card5.addView(invSubBox);
         addDivider(card5);
 
-        // 4. Detener el teletransporte automáticamente
         addModuleToggleRow(card5,
                 "Detener el teletransporte automáticamente",
                 "Desactivar el teletransporte mientras la congelación esté activa",
@@ -567,7 +550,7 @@ public class MainActivity extends Activity {
                 });
         addDivider(card5);
 
-        // 5. CONGELAR
+        // CONGELAR
         LinearLayout freezeRow = new LinearLayout(this);
         freezeRow.setOrientation(LinearLayout.HORIZONTAL);
         freezeRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -607,7 +590,7 @@ public class MainActivity extends Activity {
         card5.addView(freezeRow);
         addDivider(card5);
 
-        // 6. TELETRANSPORTE AL OBJETIVO
+        // TELETRANSPORTE AL OBJETIVO
         LinearLayout tpTargetRow = new LinearLayout(this);
         tpTargetRow.setOrientation(LinearLayout.HORIZONTAL);
         tpTargetRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -645,7 +628,7 @@ public class MainActivity extends Activity {
         card5.addView(tpTargetRow);
         addDivider(card5);
 
-        // 7. TELETRANSPORTE INFINITO + Sub-contenedor (Paquetes por ráfaga, Retardo entre ráfagas, Búfer de recuperación)
+        // TELETRANSPORTE INFINITO
         LinearLayout tpInfRow = new LinearLayout(this);
         tpInfRow.setOrientation(LinearLayout.HORIZONTAL);
         tpInfRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -689,7 +672,6 @@ public class MainActivity extends Activity {
         card5.addView(tpInfSubBox);
         addDivider(card5);
 
-        // 8. Modo en vivo (desarrollador)
         addModuleToggleRow(card5, "Modo en vivo (desarrollador)", "Solo para desarrolladores", "hex_live_dev_mode", false, null);
         root.addView(card5);
 
@@ -738,33 +720,31 @@ public class MainActivity extends Activity {
             "•\nPunto", "＋\nCruz", "○\nCírculo", "⊙\nPunto y anillo",
             "⌖\nPrecisión", "◌\nDinámica", "⌜⌟\nMínima", "✣\nPersonalizada"
         };
-        GridLayout grid = new GridLayout(this);
-        grid.setColumnCount(4);
-        grid.setRowCount(2);
         int currentStyle = prefs.getInt("cross_style", 0);
-        for (int i = 0; i < styleNames.length; i++) {
-            final int styleIdx = i;
-            TextView styleBtn = new TextView(this);
-            styleBtn.setText(styleNames[i]);
-            styleBtn.setGravity(Gravity.CENTER);
-            styleBtn.setTextSize(11f);
-            styleBtn.setTextColor(Color.parseColor("#F4F7FF"));
-            styleBtn.setBackgroundResource(i == currentStyle ? R.drawable.bg_neon_tab_selected : R.drawable.bg_neon_tab);
-            GridLayout.LayoutParams glp = new GridLayout.LayoutParams();
-            glp.width = 0;
-            glp.height = dp(56);
-            glp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
-            glp.setMargins(dp(3), dp(3), dp(3), dp(3));
-            styleBtn.setLayoutParams(glp);
-            styleBtn.setOnClickListener(v -> {
-                prefs.edit().putInt("cross_style", styleIdx).apply();
-                updateCrossStyleHighlight(styleIdx);
-                notifyServiceRefresh();
-            });
-            crossStyleButtons.add(styleBtn);
-            grid.addView(styleBtn);
+        for (int rowIdx = 0; rowIdx < 2; rowIdx++) {
+            LinearLayout styleRow = new LinearLayout(this);
+            styleRow.setOrientation(LinearLayout.HORIZONTAL);
+            for (int colIdx = 0; colIdx < 4; colIdx++) {
+                final int styleIdx = rowIdx * 4 + colIdx;
+                TextView styleBtn = new TextView(this);
+                styleBtn.setText(styleNames[styleIdx]);
+                styleBtn.setGravity(Gravity.CENTER);
+                styleBtn.setTextSize(11f);
+                styleBtn.setTextColor(Color.parseColor(styleIdx == currentStyle ? "#00F5D4" : "#F4F7FF"));
+                styleBtn.setBackgroundResource(styleIdx == currentStyle ? R.drawable.bg_neon_tab_selected : R.drawable.bg_neon_tab);
+                LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(0, dp(56), 1f);
+                slp.setMargins(dp(3), dp(3), dp(3), dp(3));
+                styleBtn.setLayoutParams(slp);
+                styleBtn.setOnClickListener(v -> {
+                    prefs.edit().putInt("cross_style", styleIdx).apply();
+                    updateCrossStyleHighlight(styleIdx);
+                    notifyServiceRefresh();
+                });
+                crossStyleButtons.add(styleBtn);
+                styleRow.addView(styleBtn);
+            }
+            card6.addView(styleRow);
         }
-        card6.addView(grid);
 
         TextView colorLabel = new TextView(this);
         colorLabel.setText("Color de la mira");
@@ -820,9 +800,13 @@ public class MainActivity extends Activity {
         footerTv.setPadding(dp(12), dp(10), dp(12), dp(16));
         root.addView(footerTv);
 
+        // ¡IMPORTANTE! Agregar root al ScrollView antes de mostrarlo en pantalla
+        scroll.addView(root);
         setContentView(scroll);
+
         refreshModuleStatesUI();
         refreshStatusBadges();
+        uiHandler.removeCallbacks(tickRunnable);
         uiHandler.post(tickRunnable);
     }
 
@@ -1228,19 +1212,25 @@ public class MainActivity extends Activity {
     }
 
     private void startProxyAndOverlayServices() {
-        Intent vpnIntent = new Intent(this, XitoProxyVpnService.class);
-        vpnIntent.setAction(XitoProxyVpnService.ACTION_START);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(vpnIntent);
-        } else {
-            startService(vpnIntent);
+        try {
+            Intent vpnIntent = new Intent(this, XitoProxyVpnService.class);
+            vpnIntent.setAction(XitoProxyVpnService.ACTION_START);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(vpnIntent);
+            } else {
+                startService(vpnIntent);
+            }
+        } catch (Exception ignored) {
         }
 
-        Intent floatIntent = new Intent(this, FloatingPanelService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(floatIntent);
-        } else {
-            startService(floatIntent);
+        try {
+            Intent floatIntent = new Intent(this, FloatingPanelService.class);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(floatIntent);
+            } else {
+                startService(floatIntent);
+            }
+        } catch (Exception ignored) {
         }
         uiHandler.postDelayed(this::refreshStatusBadges, 250L);
     }
@@ -1312,19 +1302,22 @@ public class MainActivity extends Activity {
     }
 
     private void showJoinPopup() {
-        View popupView = LayoutInflater.from(this).inflate(R.layout.join_popup, null);
-        final AlertDialog dialog = new AlertDialog.Builder(this)
-                .setView(popupView)
-                .create();
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+        try {
+            View popupView = LayoutInflater.from(this).inflate(R.layout.join_popup, null);
+            final AlertDialog dialog = new AlertDialog.Builder(this)
+                    .setView(popupView)
+                    .create();
+            if (dialog.getWindow() != null) {
+                dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+            }
+            popupView.findViewById(R.id.btn_popup_dismiss).setOnClickListener(v -> dialog.dismiss());
+            popupView.findViewById(R.id.btn_popup_join).setOnClickListener(v -> {
+                dialog.dismiss();
+                openLink(CHANNEL_URL);
+            });
+            dialog.show();
+        } catch (Exception ignored) {
         }
-        popupView.findViewById(R.id.btn_popup_dismiss).setOnClickListener(v -> dialog.dismiss());
-        popupView.findViewById(R.id.btn_popup_join).setOnClickListener(v -> {
-            dialog.dismiss();
-            openLink(CHANNEL_URL);
-        });
-        dialog.show();
     }
 
     private void openLink(String url) {

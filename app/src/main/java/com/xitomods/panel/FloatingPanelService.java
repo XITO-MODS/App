@@ -7,6 +7,7 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.ServiceInfo;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.Typeface;
@@ -20,7 +21,6 @@ import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
-import android.widget.GridLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
@@ -29,17 +29,6 @@ import android.widget.Toast;
 
 /**
  * Servicio de superposición flotante XITO MODS con todas las funciones de HEX_ESP integradas.
- * Incluye:
- * - Burbuja flotante arrastrable (con bloqueo de posición al mantener pulsado 2 segundos o desde Ajustes).
- * - Barra flotante para OCULTAR CÓDIGO DE LA PARTIDA (ajustable en grosor y longitud en tiempo real y con bloqueo de 2 segundos).
- * - Panel flotante neón arrastrable y redimensionable con las 4 pestañas de HEX_ESP:
- *   1. MIRA (Mostrar mira, 8 estilos, 9 colores, Tamaño y Opacidad en tiempo real)
- *   2. VISUALES (Ocultar código de la partida, Grosor y Longitud de la barra, Borde RGB, Contador FPS/Ping)
- *   3. AJUSTES (Fantasma V2 / Ghost V2, Latencia de Ping, Invisible V2 + Velocidad de repetición,
- *               Detener teletransporte automáticamente, Congelar, Teletransporte al Objetivo,
- *               Teletransporte Infinito + Paquetes por ráfaga + Retardo entre ráfagas + Búfer de recuperación,
- *               Modo en vivo desarrollador, Tamaño y Opacidad del botón flotante)
- *   4. INFORMACIÓN (Estado del Proxy VPN, Ping/Ráfagas en vivo, App seleccionada, Validez de clave y botón de cierre)
  */
 public class FloatingPanelService extends Service {
     public static final String ACTION_REFRESH = "com.xitomods.panel.REFRESH_OVERLAY";
@@ -148,7 +137,18 @@ public class FloatingPanelService extends Service {
                     .setContentText("Toca la burbuja flotante para abrir el panel.")
                     .setSmallIcon(R.drawable.ic_xito_bubble)
                     .build();
-            startForeground(1001, notification);
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    startForeground(1001, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+                } else {
+                    startForeground(1001, notification);
+                }
+            } catch (Exception e) {
+                try {
+                    startForeground(1001, notification);
+                } catch (Exception ignored) {
+                }
+            }
         }
     }
 
@@ -229,9 +229,6 @@ public class FloatingPanelService extends Service {
         wm.addView(bubbleView, bubbleLp);
     }
 
-    // =========================================================================
-    // BARRA FLOTANTE PARA OCULTAR CÓDIGO DE LA PARTIDA (HEX_ESP)
-    // =========================================================================
     private void createMatchCodeBarOverlay() {
         matchCodeBarView = new TextView(this);
         matchCodeBarView.setText("XITO • OCULTO");
@@ -334,7 +331,6 @@ public class FloatingPanelService extends Service {
         menuLp.y = dp(120);
         menuView.setVisibility(View.GONE);
 
-        // Arrastrar desde el título
         View titleDrag = menuView.findViewById(R.id.floating_title_drag);
         titleDrag.setOnTouchListener(new View.OnTouchListener() {
             private int sx, sy;
@@ -356,7 +352,6 @@ public class FloatingPanelService extends Service {
             }
         });
 
-        // Redimensionar desde la esquina inferior derecha (◢)
         View resizeHandle = menuView.findViewById(R.id.floating_resize_handle);
         resizeHandle.setOnTouchListener(new View.OnTouchListener() {
             private int sw, sh;
@@ -378,10 +373,8 @@ public class FloatingPanelService extends Service {
             }
         });
 
-        // Botón minimizar (−)
         menuView.findViewById(R.id.floating_btn_minimize).setOnClickListener(v -> closeMenu());
 
-        // Eventos de las 4 pestañas
         menuView.findViewById(R.id.tab_container_mira).setOnClickListener(v -> showTab(0));
         menuView.findViewById(R.id.tab_container_visuales).setOnClickListener(v -> showTab(1));
         menuView.findViewById(R.id.tab_container_ajustes).setOnClickListener(v -> showTab(2));
@@ -436,9 +429,6 @@ public class FloatingPanelService extends Service {
         final SharedPreferences prefs = getSharedPreferences(UI_PREFS, MODE_PRIVATE);
 
         if (tabIdx == 0) {
-            // =================================================================
-            // PESTAÑA 1: MIRA PERSONALIZADA (8 Estilos + 9 Colores + Sliders)
-            // =================================================================
             addSectionHeader("MIRA PERSONALIZADA NEÓN");
             addToggleOption("MOSTRAR MIRA", "Visible en el centro de la pantalla", "cross_enabled", true, null);
 
@@ -454,32 +444,30 @@ public class FloatingPanelService extends Service {
                 "•\nPunto", "＋\nCruz", "○\nCírculo", "⊙\nAnillo",
                 "⌖\nPrecisión", "◌\nDinámica", "⌜⌟\nMínima", "✣\nPersonalizada"
             };
-            GridLayout grid = new GridLayout(this);
-            grid.setColumnCount(4);
-            grid.setRowCount(2);
             int curStyle = prefs.getInt("cross_style", 0);
-            for (int i = 0; i < styleNames.length; i++) {
-                final int idx = i;
-                TextView btn = new TextView(this);
-                btn.setText(styleNames[i]);
-                btn.setGravity(Gravity.CENTER);
-                btn.setTextSize(10f);
-                btn.setTextColor(Color.parseColor(i == curStyle ? "#00F5D4" : "#F4F7FF"));
-                btn.setBackgroundResource(i == curStyle ? R.drawable.bg_neon_tab_selected : R.drawable.bg_neon_tab);
-                GridLayout.LayoutParams glp = new GridLayout.LayoutParams();
-                glp.width = 0;
-                glp.height = dp(44);
-                glp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
-                glp.setMargins(dp(2), dp(2), dp(2), dp(2));
-                btn.setLayoutParams(glp);
-                btn.setOnClickListener(v -> {
-                    prefs.edit().putInt("cross_style", idx).apply();
-                    syncOverlayFromPrefs();
-                    showTab(0);
-                });
-                grid.addView(btn);
+            for (int r = 0; r < 2; r++) {
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                for (int c = 0; c < 4; c++) {
+                    final int idx = r * 4 + c;
+                    TextView btn = new TextView(this);
+                    btn.setText(styleNames[idx]);
+                    btn.setGravity(Gravity.CENTER);
+                    btn.setTextSize(10f);
+                    btn.setTextColor(Color.parseColor(idx == curStyle ? "#00F5D4" : "#F4F7FF"));
+                    btn.setBackgroundResource(idx == curStyle ? R.drawable.bg_neon_tab_selected : R.drawable.bg_neon_tab);
+                    LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(0, dp(44), 1f);
+                    glp.setMargins(dp(2), dp(2), dp(2), dp(2));
+                    btn.setLayoutParams(glp);
+                    btn.setOnClickListener(v -> {
+                        prefs.edit().putInt("cross_style", idx).apply();
+                        syncOverlayFromPrefs();
+                        showTab(0);
+                    });
+                    row.addView(btn);
+                }
+                styleCard.addView(row);
             }
-            styleCard.addView(grid);
 
             TextView colTitle = new TextView(this);
             colTitle.setText("Color de la Mira");
@@ -512,9 +500,6 @@ public class FloatingPanelService extends Service {
             addSliderOption("OPACIDAD DE LA MIRA", "%", "cross_alpha", 35, 100, 100);
 
         } else if (tabIdx == 1) {
-            // =================================================================
-            // PESTAÑA 2: VISUALES (Ocultar código de la partida + Barras + HUD)
-            // =================================================================
             addSectionHeader("OCULTAR CÓDIGO DE LA PARTIDA");
             addToggleOption("OCULTAR CÓDIGO DE LA PARTIDA",
                     "Arrastra libremente; mantén 2s para bloquear posición",
@@ -528,9 +513,6 @@ public class FloatingPanelService extends Service {
             addSliderOption("Intensidad de Brillo Neón", "%", "vis_glow", 10, 100, 85);
 
         } else if (tabIdx == 2) {
-            // =================================================================
-            // PESTAÑA 3: AJUSTES (Todos los módulos de Proxy HEX_ESP + Botón)
-            // =================================================================
             addSectionHeader("MÓDULOS AVANZADOS DEL PROXY (HEX ESP)");
             addToggleOption("FANTASMA V2 (GHOST V2)", "Estado del módulo", "hex_ghost_v2", false, null);
             addToggleOption("LATENCIA DE PING", "Estado del módulo", "hex_ping_latency", false, null);
@@ -587,9 +569,6 @@ public class FloatingPanelService extends Service {
             addToggleOption("Bloquear Posición", "Mantén 2s la burbuja para bloquear/desbloquear", "lock_pos", false, null);
 
         } else {
-            // =================================================================
-            // PESTAÑA 4: INFORMACIÓN DE SESIÓN Y ESTADO DEL PROXY
-            // =================================================================
             addSectionHeader("INFORMACIÓN Y ESTADO DEL PROXY");
             LinearLayout card = createNeonCard();
             TextView brand = new TextView(this);
@@ -802,7 +781,6 @@ public class FloatingPanelService extends Service {
             crosshairView.setConfig(style, color, size, alpha);
         }
 
-        // Sincronizar Barra de Ocultar Código de la Partida en tiempo real
         boolean hideCode = prefs.getBoolean("hide_match_code", false);
         int barThicknessDp = prefs.getInt("bar_thickness_dp", 16);
         int barLengthDp = prefs.getInt("bar_length_dp", 220);

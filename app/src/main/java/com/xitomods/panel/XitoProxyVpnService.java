@@ -6,6 +6,7 @@ import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.ServiceInfo;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
@@ -18,15 +19,6 @@ import java.util.Queue;
 
 /**
  * Servicio de Proxy VPN de XITO MODS (equivalente funcional a A1 de HEX_ESP).
- * Ejecuta la interfaz TUN local y procesa en tiempo real los módulos de:
- * - FANTASMA V2 (GHOST V2)
- * - LATENCIA DE PING
- * - INVISIBLE V2 (con velocidad de repetición 1ms - 50ms)
- * - Detener el teletransporte automáticamente al congelar
- * - CONGELAR
- * - TELETRANSPORTE AL OBJETIVO
- * - TELETRANSPORTE INFINITO (con paquetes por ráfaga 1-16, retardo entre ráfagas 5-25ms y búfer de recuperación)
- * - Modo en vivo (desarrollador)
  */
 public class XitoProxyVpnService extends VpnService {
     public static final String ACTION_START = "com.xitomods.panel.START_VPN_PROXY";
@@ -77,27 +69,33 @@ public class XitoProxyVpnService extends VpnService {
                     .setContentText("Módulos de proxy y panel flotante en ejecución.")
                     .setSmallIcon(R.drawable.ic_xito_bubble)
                     .build();
-            startForeground(1002, notification);
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    startForeground(1002, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+                } else {
+                    startForeground(1002, notification);
+                }
+            } catch (Exception e) {
+                try {
+                    startForeground(1002, notification);
+                } catch (Exception ignored) {
+                }
+            }
         }
     }
 
     private void startVpnProxy() {
         try {
-            SharedPreferences prefs = getSharedPreferences(FloatingPanelService.UI_PREFS, Context.MODE_PRIVATE);
-            String targetPkg = prefs.getString("selected_app_pkg", "com.dts.freefiremax");
-
             Builder builder = new Builder();
             builder.setSession("XITO MODS PROXY V4");
             builder.setMtu(1400);
             builder.addAddress("10.8.0.2", 32);
-            // Ruta local dedicada de control para mantener el túnel VPN activo sin bloquear el tráfico real de internet
             builder.addRoute("10.8.0.0", 24);
             builder.addDnsServer("8.8.8.8");
             builder.addDnsServer("1.1.1.1");
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 try {
-                    // Excluir la propia app para evitar bucles
                     builder.addDisallowedApplication(getPackageName());
                 } catch (Exception ignored) {
                 }
@@ -113,7 +111,6 @@ public class XitoProxyVpnService extends VpnService {
             engineThread.setDaemon(true);
             engineThread.start();
         } catch (Exception e) {
-            // Si el dispositivo o entorno virtual restringe TUN, mantenemos el motor lógico activo
             running = true;
             isConnected = true;
             engineThread = new Thread(this::runProxyLoop, "XitoProxyEngineThread");
@@ -155,13 +152,13 @@ public class XitoProxyVpnService extends VpnService {
                 boolean ghostV2 = prefs.getBoolean("hex_ghost_v2", false);
                 boolean pingLatency = prefs.getBoolean("hex_ping_latency", false);
                 boolean invisibleV2 = prefs.getBoolean("hex_invisible_v2", false);
-                int repeatDelayMs = prefs.getInt("hex_repeat_delay_ms", 1); // 1ms a 50ms
+                int repeatDelayMs = prefs.getInt("hex_repeat_delay_ms", 1);
                 boolean autoStopTp = prefs.getBoolean("hex_auto_stop_tp", true);
                 boolean freeze = prefs.getBoolean("hex_freeze", false);
                 boolean tpTarget = prefs.getBoolean("hex_tp_target", false);
                 boolean tpInfinite = prefs.getBoolean("hex_tp_infinite", false);
-                int burstPackets = prefs.getInt("hex_burst_packets", 1); // 1 a 16 paquetes
-                int burstDelayMs = prefs.getInt("hex_burst_delay_ms", 5); // 5ms a 25ms
+                int burstPackets = prefs.getInt("hex_burst_packets", 1);
+                int burstDelayMs = prefs.getInt("hex_burst_delay_ms", 5);
                 boolean recoveryBuffer = prefs.getBoolean("hex_recovery_buffer", false);
 
                 if (freeze && autoStopTp && (tpTarget || tpInfinite)) {
@@ -173,7 +170,6 @@ public class XitoProxyVpnService extends VpnService {
                     tpInfinite = false;
                 }
 
-                // Cálculo de latencia y procesamiento de ráfagas según módulos activos
                 int basePing = 17;
                 if (pingLatency) basePing += 145;
                 if (ghostV2) basePing += 65;
