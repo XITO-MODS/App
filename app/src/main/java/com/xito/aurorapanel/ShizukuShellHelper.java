@@ -3,10 +3,10 @@ package com.xito.aurorapanel;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 
 import rikka.shizuku.Shizuku;
-import rikka.shizuku.ShizukuRemoteProcess;
 
 public class ShizukuShellHelper {
 
@@ -22,12 +22,21 @@ public class ShizukuShellHelper {
 
     /**
      * Ejecuta un script de comandos shell con privilegios de Shizuku (ADB / UID 2000)
-     * para poder leer/escribir libremente en /storage/emulated/0/Android/data/<paquete>/
+     * usando reflexión sobre Shizuku.newProcess (que en Shizuku API 13.1.5 tiene acceso privado).
      */
     public static ShellResult execShizukuCommand(String shellScript) {
         StringBuilder outBuilder = new StringBuilder();
+        Process process = null;
         try {
-            ShizukuRemoteProcess process = Shizuku.newProcess(new String[]{"sh"}, null, null);
+            Method newProcessMethod = Shizuku.class.getDeclaredMethod(
+                    "newProcess",
+                    String[].class,
+                    String[].class,
+                    String.class
+            );
+            newProcessMethod.setAccessible(true);
+            process = (Process) newProcessMethod.invoke(null, new String[]{"sh"}, null, null);
+
             try (OutputStream os = process.getOutputStream()) {
                 os.write((shellScript + "\nexit\n").getBytes(StandardCharsets.UTF_8));
                 os.flush();
@@ -48,7 +57,14 @@ public class ShizukuShellHelper {
             process.destroy();
             return new ShellResult(code, outBuilder.toString().trim());
         } catch (Throwable t) {
-            return new ShellResult(-1, "Error ejecutando Shizuku: " + t.getMessage());
+            if (process != null) {
+                try {
+                    process.destroy();
+                } catch (Throwable ignored) {
+                }
+            }
+            Throwable cause = (t.getCause() != null) ? t.getCause() : t;
+            return new ShellResult(-1, "Error ejecutando Shizuku: " + cause.getMessage());
         }
     }
 }
