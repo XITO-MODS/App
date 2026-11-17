@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#05140C"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <!-- Tarjeta Principal de Login en Diseño Verde -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#0C2618"
+            android:orientation="vertical"
+            android:padding="24dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:text="XITO MODS • ACCESO VIP"
+                android:textColor="#00E676"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="6dp"
+                android:text="Panel RGB Shizuku • FF Normal &amp; FF MAX"
+                android:textColor="#A5D6A7"
+                android:textSize="13sp" />
+
+            <!-- Indicador de ID de Dispositivo -->
+            <TextView
+                android:id="@+id/tvDeviceIdInfo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:background="#123824"
+                android:gravity="center"
+                android:padding="10dp"
+                android:text="ID de Dispositivo: Verificando..."
+                android:textColor="#69F0AE"
+                android:textSize="12sp"
+                android:fontFamily="monospace" />
+
+            <!-- Campo de Contraseña / Key con hint exacto "Coloca tu key aquí" -->
+            <EditText
+                android:id="@+id/etLicenseKey"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:background="#143D27"
+                android:hint="Coloca tu key aquí"
+                android:textColorHint="#81C784"
+                android:textColor="#FFFFFF"
+                android:padding="16dp"
+                android:singleLine="true"
+                android:inputType="textVisiblePassword|textNoSuggestions"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvLoginStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:gravity="center"
+                android:text="Ingresa tu key para desbloquear el panel RGB"
+                android:textColor="#B9F6CA"
+                android:textSize="12sp" />
+
+            <!-- Botón Verde de Iniciar Sesión -->
+            <Button
+                android:id="@+id/btnLoginVerify"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:backgroundTint="#00C853"
+                android:padding="14dp"
+                android:text="ENTRAR AL PANEL"
+                android:textAllCaps="false"
+                android:textColor="#041009"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>
