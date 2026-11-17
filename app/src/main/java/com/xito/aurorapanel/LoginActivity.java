@@ -14,6 +14,7 @@ public class LoginActivity extends AppCompatActivity {
     private EditText etLicenseKey;
     private TextView tvLoginStatus;
     private TextView tvDeviceIdInfo;
+    private Button btnLoginVerify;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -23,32 +24,50 @@ public class LoginActivity extends AppCompatActivity {
         etLicenseKey = findViewById(R.id.etLicenseKey);
         tvLoginStatus = findViewById(R.id.tvLoginStatus);
         tvDeviceIdInfo = findViewById(R.id.tvDeviceIdInfo);
-        Button btnLoginVerify = findViewById(R.id.btnLoginVerify);
+        btnLoginVerify = findViewById(R.id.btnLoginVerify);
 
         String deviceId = LicenseManager.getDeviceId(this);
         tvDeviceIdInfo.setText("ID Dispositivo: " + deviceId);
 
-        // Si ya tiene una sesión activa y vigente (no vencida), entra directo al panel
-        LicenseManager.ValidationResult current = LicenseManager.checkCurrentSession(this);
-        if (current.valid) {
-            openMainPanel();
-            return;
+        String savedKey = LicenseManager.getSavedKey(this);
+        if (savedKey != null && !savedKey.isEmpty()) {
+            etLicenseKey.setText(savedKey);
+            verifyKeyAsync(savedKey, true);
         }
 
         btnLoginVerify.setOnClickListener(v -> {
             String inputKey = etLicenseKey.getText().toString().trim();
-            LicenseManager.ValidationResult result = LicenseManager.validateAndActivateKey(this, inputKey);
-            if (result.valid) {
-                tvLoginStatus.setText(result.message);
-                tvLoginStatus.setTextColor(0xFF00E676);
-                Toast.makeText(this, result.message, Toast.LENGTH_SHORT).show();
-                openMainPanel();
-            } else {
-                tvLoginStatus.setText(result.message);
-                tvLoginStatus.setTextColor(0xFFFF5252);
-                Toast.makeText(this, result.message, Toast.LENGTH_LONG).show();
-            }
+            verifyKeyAsync(inputKey, false);
         });
+    }
+
+    private void verifyKeyAsync(String inputKey, boolean silentIfFail) {
+        btnLoginVerify.setEnabled(false);
+        tvLoginStatus.setText("Verificando key en el servidor (xito-mods)...");
+        tvLoginStatus.setTextColor(0xFFFFD166);
+
+        new Thread(() -> {
+            LicenseManager.ValidationResult result = LicenseManager.validateAndActivateKeySync(LoginActivity.this, inputKey);
+            runOnUiThread(() -> {
+                btnLoginVerify.setEnabled(true);
+                if (result.valid) {
+                    tvLoginStatus.setText(result.message);
+                    tvLoginStatus.setTextColor(0xFF00E676);
+                    Toast.makeText(LoginActivity.this, result.message, Toast.LENGTH_SHORT).show();
+                    openMainPanel();
+                } else {
+                    if (silentIfFail) {
+                        LicenseManager.clearSession(LoginActivity.this);
+                        tvLoginStatus.setText("Ingresa tu key para desbloquear el panel RGB");
+                        tvLoginStatus.setTextColor(0xFFB9F6CA);
+                    } else {
+                        tvLoginStatus.setText(result.message);
+                        tvLoginStatus.setTextColor(0xFFFF5252);
+                        Toast.makeText(LoginActivity.this, result.message, Toast.LENGTH_LONG).show();
+                    }
+                }
+            });
+        }).start();
     }
 
     private void openMainPanel() {

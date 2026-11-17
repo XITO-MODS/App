@@ -81,9 +81,12 @@ public class MainActivity extends AppCompatActivity {
         Button btnDirectInjectOnly = findViewById(R.id.btnDirectInjectOnly);
         Button btnRestoreClean = findViewById(R.id.btnRestoreClean);
 
-        if (!verifyActiveLicenseOrRedirect()) {
+        String savedKey = LicenseManager.getSavedKey(this);
+        if (savedKey == null || savedKey.isEmpty()) {
+            redirectToLogin();
             return;
         }
+        tvLicenseBadge.setText("Key Activa: " + savedKey);
 
         Shizuku.addRequestPermissionResultListener(permissionResultListener);
         Shizuku.addBinderReceivedListenerSticky(binderReceivedListener);
@@ -102,32 +105,23 @@ public class MainActivity extends AppCompatActivity {
 
         btnLogoutKey.setOnClickListener(v -> {
             LicenseManager.clearSession(this);
-            Intent intent = new Intent(this, LoginActivity.class);
-            startActivity(intent);
-            finish();
+            redirectToLogin();
         });
 
-        btnStep1Prepare.setOnClickListener(v -> {
-            if (verifyActiveLicenseOrRedirect()) runStep1PrepareAndLaunch();
-        });
-        btnStep2ActivateLobby.setOnClickListener(v -> {
-            if (verifyActiveLicenseOrRedirect()) runStep2ActivateBypassAndRgb();
-        });
-        btnDirectInjectOnly.setOnClickListener(v -> {
-            if (verifyActiveLicenseOrRedirect()) runDirectShaderReplacement();
-        });
-        btnRestoreClean.setOnClickListener(v -> {
-            if (verifyActiveLicenseOrRedirect()) runRestoreCleanState();
-        });
+        btnStep1Prepare.setOnClickListener(v -> runStep1PrepareAndLaunch());
+        btnStep2ActivateLobby.setOnClickListener(v -> runStep2ActivateBypassAndRgb());
+        btnDirectInjectOnly.setOnClickListener(v -> runDirectShaderReplacement());
+        btnRestoreClean.setOnClickListener(v -> runRestoreCleanState());
 
         updateActiveFilesBanner();
         refreshShizukuStatus();
+        revalidateKeyInBackground();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        verifyActiveLicenseOrRedirect();
+        revalidateKeyInBackground();
     }
 
     @Override
@@ -138,21 +132,34 @@ public class MainActivity extends AppCompatActivity {
         Shizuku.removeBinderDeadListener(binderDeadListener);
     }
 
-    private boolean verifyActiveLicenseOrRedirect() {
-        LicenseManager.ValidationResult res = LicenseManager.checkCurrentSession(this);
-        if (!res.valid) {
-            Toast.makeText(this, res.message, Toast.LENGTH_LONG).show();
-            Intent intent = new Intent(this, LoginActivity.class);
-            startActivity(intent);
-            finish();
-            return false;
+    private void revalidateKeyInBackground() {
+        final String savedKey = LicenseManager.getSavedKey(this);
+        if (savedKey == null || savedKey.isEmpty()) {
+            redirectToLogin();
+            return;
         }
-        if (res.isPermanent) {
-            tvLicenseBadge.setText("Key: " + res.keyName + " (Permanente • Multidispositivo)");
-        } else {
-            tvLicenseBadge.setText("Key: " + res.keyName + " (Expira en " + LicenseManager.formatRemainingTime(res.remainingMs) + " • 1 Disp.)");
-        }
-        return true;
+        new Thread(() -> {
+            LicenseManager.ValidationResult res = LicenseManager.validateAndActivateKeySync(MainActivity.this, savedKey);
+            runOnUiThread(() -> {
+                if (!res.valid) {
+                    Toast.makeText(MainActivity.this, res.message, Toast.LENGTH_LONG).show();
+                    LicenseManager.clearSession(MainActivity.this);
+                    redirectToLogin();
+                } else {
+                    if (res.isPermanent) {
+                        tvLicenseBadge.setText("Key: " + res.keyName + " (Permanente)");
+                    } else {
+                        tvLicenseBadge.setText("Key: " + res.keyName + " (Expira en " + LicenseManager.formatRemainingTime(res.remainingMs) + ")");
+                    }
+                }
+            });
+        }).start();
+    }
+
+    private void redirectToLogin() {
+        Intent intent = new Intent(this, LoginActivity.class);
+        startActivity(intent);
+        finish();
     }
 
     private boolean isFreeFireMaxSelected() {
