@@ -3,31 +3,41 @@ plugins {
 }
 
 android {
-    namespace 'com.xitomods.panel'
+    namespace 'com.xito.aurorapanel'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.xitomods.panel"
-        minSdk 21
+        applicationId "com.xito.aurorapanel"
+        minSdk 26
         targetSdk 34
-        versionCode 40
-        versionName "4.0-NEON"
+        versionCode 3
+        versionName "3.0-RGB-Dual"
     }
 
     buildTypes {
         release {
             minifyEnabled false
+            signingConfig signingConfigs.debug
         }
         debug {
-            debuggable true
+            minifyEnabled false
         }
     }
+
+    // Evita que Android comprima los bundles RGB y archivos de bypass de FF Normal y FF MAX
+    androidResources {
+        noCompress 'RGB_NORMAL', 'BYPASS_NORMAL', 'ORIFILEINFO_NORMAL', 'RGB_MAX', 'BYPASS_MAX', 'ORIFILEINFO_MAX'
+    }
+
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 }
 
 dependencies {
-    // Pure Android SDK (zero external dependencies required, matching original APK)
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'dev.rikka.shizuku:api:13.1.5'
+    implementation 'dev.rikka.shizuku:provider:13.1.5'
 }
